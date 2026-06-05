@@ -1,8 +1,15 @@
-# Set platform to 13.0 to support modern plugins like supabase
-platform :ios, '13.0'
+# The relative path to the Flutter SDK's podhelper.rb
+flutter_xcconfig = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
+if File.exist?(flutter_xcconfig)
+  File.readlines(flutter_xcconfig).each do |line|
+    if line =~ /FLUTTER_ROOT=(.*)/
+      flutter_root = $1
+      require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+    end
+  end
+end
 
-# CocoaPods analytics sends usage stats. Uncomment the line below to disable.
-# disable_cocoapods_analytics!
+flutter_ios_podfile_setup
 
 target 'Runner' do
   use_frameworks!
