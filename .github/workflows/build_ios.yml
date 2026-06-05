@@ -1,0 +1,42 @@
+name: Compilar IPA (iOS) sin firma
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch: # Permite lanzar la compilación manualmente desde la pestaña Actions de GitHub
+
+jobs:
+  build:
+    name: Compilar para iOS
+    runs-on: macos-14
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Java (requerido para plugins compartidos)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Configurar Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Instalar dependencias de Flutter
+        run: flutter pub get
+        working-directory: anime_list_app
+
+      - name: Compilar IPA (Sin firmar)
+        run: flutter build ipa --no-codesign
+        working-directory: anime_list_app
+
+      - name: Subir archivo IPA como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: App-iOS-Sin-Firmar
+          path: anime_list_app/build/ios/archive/Runner.xcarchive
+          if-no-files-found: error

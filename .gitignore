@@ -1,0 +1,30 @@
+# General ignores
+*.apk
+*.aab
+*.ipa
+.idea/
+.vscode/
+*.log
+.DS_Store
+
+# Flutter/Dart related
+**/build/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.pub-cache/
+**/.packages
+
+# Android specific
+**/android/local.properties
+**/android/key.properties
+**/android/.gradle/
+
+# iOS specific
+**/ios/Flutter/.flutter-plugins
+**/ios/Flutter/.flutter-plugins-dependencies
+**/ios/Flutter/GeneratedPluginRegistrant.h
+**/ios/Flutter/GeneratedPluginRegistrant.m
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/Flutter/flutter_settings.gradle
+**/ios/Flutter/ephemeral/
