@@ -31,8 +31,9 @@ jobs:
         working-directory: anime_list_app
 
       - name: Configurar proyecto de iOS (Generar Podfile)
-        run: flutter build ios --config-only
+        run: flutter build ios --config-only --no-codesign
         working-directory: anime_list_app
+
 
       - name: Configurar Xcode para compilar sin firma (CI)
         run: |
