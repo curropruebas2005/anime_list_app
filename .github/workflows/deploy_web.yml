@@ -1,0 +1,58 @@
+name: Desplegar Web a GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Configurar Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Instalar dependencias
+        run: flutter pub get
+        working-directory: anime_list_app
+
+      - name: Compilar para Web
+        run: flutter build web --base-href "/anime_list_app/"
+        working-directory: anime_list_app
+
+      - name: Configurar Pages
+        uses: actions/configure-pages@v4
+
+      - name: Subir artefacto para Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: anime_list_app/build/web
+
+      - name: Desplegar en GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
