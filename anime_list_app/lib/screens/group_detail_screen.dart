@@ -1460,16 +1460,17 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
           // Cargar iniciales una sola vez al abrir
           if (searchResults.isEmpty && !isSearching && searchController.text.isEmpty) {
             isSearching = true;
-            _animeRepo.fetchAnimes(orderFilter: 'Puntuación').then((results) {
+            _animeRepo.fetchAnimes(orderFilter: 'Puntuación', pageSize: 1000).then((results) {
               if (context.mounted) {
                 setSheetState(() {
                   final List<Anime> list = results['list'] ?? [];
-                  searchResults = list.take(10).toList();
+                  searchResults = list;
                   isSearching = false;
                 });
               }
             });
           }
+
 
           Future<void> performSearch() async {
             if (searchController.text.isEmpty) return;

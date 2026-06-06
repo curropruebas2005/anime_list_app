@@ -1787,17 +1787,6 @@ class AnimeRepository {
             .select('rating')
             .eq('group_id', groupId)
             .eq('anime_id', animeId);
-            
-        double groupAvg = 0;
-        int totalVotes = 0;
-        if (ratingsData.isNotEmpty) {
-          totalVotes = ratingsData.length;
-          double sum = 0;
-          for (var r in ratingsData) {
-            sum += (r['rating'] as num).toDouble();
-          }
-          groupAvg = sum / totalVotes;
-        }
 
         // Obtener mi voto en este grupo
         final myRatingData = await _supabase
@@ -1810,6 +1799,29 @@ class AnimeRepository {
 
         final myPersonalEntry = personalMap[animeId];
         final myPersonalReview = reviewsMap[animeId];
+
+        // Construir la lista de notas para calcular la media del grupo de forma precisa e interactiva
+        final List<double> allRatings = ratingsData.map((r) => (r['rating'] as num).toDouble()).toList();
+        
+        // Si el usuario ya lo tenía puntuado en su lista personal, pero no tiene registro en el grupo
+        if (myRatingData == null && myPersonalReview != null && myId.isNotEmpty) {
+          final personalRating = (myPersonalReview['rating'] as num).toDouble();
+          allRatings.add(personalRating);
+          
+          // Sincronizar automáticamente en segundo plano para persistirlo en la base de datos
+          _syncRatingToGroupInBackground(groupId, animeId, myId, personalRating);
+        }
+            
+        double groupAvg = 0;
+        int totalVotes = 0;
+        if (allRatings.isNotEmpty) {
+          totalVotes = allRatings.length;
+          double sum = 0;
+          for (var r in allRatings) {
+            sum += r;
+          }
+          groupAvg = sum / totalVotes;
+        }
 
         result.add({
           'anime': Anime.fromMap(animeMap),
@@ -1837,6 +1849,52 @@ class AnimeRepository {
       throw Exception('Error al cargar animes del grupo');
     }
   }
+
+  void _syncRatingToGroupInBackground(String groupId, int animeId, String userId, double rating) {
+    final now = DateTime.now().toIso8601String();
+    Future.microtask(() async {
+      try {
+        try {
+          await _supabase.from('group_anime_ratings').upsert({
+            'group_id': groupId,
+            'anime_id': animeId,
+            'user_id': userId,
+            'rating': rating,
+            'created_at': now,
+          }, onConflict: 'group_id,anime_id,user_id');
+        } catch (e1) {
+          try {
+            await _supabase.from('group_anime_ratings').upsert({
+              'group_id': groupId,
+              'anime_id': animeId,
+              'user_id': userId,
+              'rating': rating,
+              'created_at': now,
+            }, onConflict: 'group_id,user_id,anime_id');
+          } catch (e2) {
+            try {
+              await _supabase.from('group_anime_ratings').upsert({
+                'group_id': groupId,
+                'anime_id': animeId,
+                'user_id': userId,
+                'rating': rating,
+              }, onConflict: 'group_id,anime_id,user_id');
+            } catch (e3) {
+              await _supabase.from('group_anime_ratings').upsert({
+                'group_id': groupId,
+                'anime_id': animeId,
+                'user_id': userId,
+                'rating': rating,
+              }, onConflict: 'group_id,user_id,anime_id');
+            }
+          }
+        }
+      } catch (e) {
+        print('Error en sincronización automática en segundo plano: $e');
+      }
+    });
+  }
+
 
   Future<void> updateEpisodeProgress(int animeId, int episodes) async {
     try {
@@ -1925,11 +1983,70 @@ class AnimeRepository {
 
   Future<void> addGroupAnime(String groupId, int animeId) async {
     try {
+      // 1. Añadir el anime a la lista del grupo
       await _supabase.from('group_animes').insert({
         'group_id': groupId,
         'anime_id': animeId,
         'added_by': currentUser?.id,
       });
+
+      // 2. Comprobar si el usuario actual ya lo tenía puntuado en su lista personal
+      final user = currentUser;
+      if (user != null) {
+        final personalReview = await _supabase
+            .from('reviews')
+            .select('rating, opinion')
+            .eq('user_id', user.id)
+            .eq('anime_id', animeId)
+            .maybeSingle();
+
+        if (personalReview != null) {
+          final rating = (personalReview['rating'] as num).toDouble();
+          final now = DateTime.now().toIso8601String();
+
+          // Sincronizar la nota al grupo de forma adaptativa
+          try {
+            await _supabase.from('group_anime_ratings').upsert({
+              'group_id': groupId,
+              'anime_id': animeId,
+              'user_id': user.id,
+              'rating': rating,
+              'created_at': now,
+            }, onConflict: 'group_id,anime_id,user_id');
+          } catch (e1) {
+            try {
+              await _supabase.from('group_anime_ratings').upsert({
+                'group_id': groupId,
+                'anime_id': animeId,
+                'user_id': user.id,
+                'rating': rating,
+                'created_at': now,
+              }, onConflict: 'group_id,user_id,anime_id');
+            } catch (e2) {
+              try {
+                await _supabase.from('group_anime_ratings').upsert({
+                  'group_id': groupId,
+                  'anime_id': animeId,
+                  'user_id': user.id,
+                  'rating': rating,
+                }, onConflict: 'group_id,anime_id,user_id');
+              } catch (e3) {
+                try {
+                  await _supabase.from('group_anime_ratings').upsert({
+                    'group_id': groupId,
+                    'anime_id': animeId,
+                    'user_id': user.id,
+                    'rating': rating,
+                  }, onConflict: 'group_id,user_id,anime_id');
+                } catch (e4) {
+                  // Si falla la sincronización de nota inicial, logueamos pero no cancelamos la inserción del anime
+                  print('Error al sincronizar nota inicial al grupo: $e4');
+                }
+              }
+            }
+          }
+        }
+      }
     } catch (e) {
       if (e.toString().contains('23505')) throw Exception('Este anime ya está en la lista del grupo.');
       if (e.toString().contains('42501')) throw Exception('No tienes permisos suficientes para añadir animes a este grupo.');
@@ -1938,17 +2055,29 @@ class AnimeRepository {
     }
   }
 
+
   Future<List<Map<String, dynamic>>> fetchGroupDetailedRatings(String groupId, int animeId) async {
     try {
       final myId = currentUser?.id;
       final friendIds = await fetchFriendshipIds();
 
       // 1. Traer todos los ratings del grupo
-      final data = await _supabase
-          .from('group_anime_ratings')
-          .select('rating, user_id, updated_at')
-          .eq('group_id', groupId)
-          .eq('anime_id', animeId);
+      List<dynamic> data;
+      bool hasCreatedAt = true;
+      try {
+        data = await _supabase
+            .from('group_anime_ratings')
+            .select('rating, user_id, created_at')
+            .eq('group_id', groupId)
+            .eq('anime_id', animeId);
+      } catch (e) {
+        hasCreatedAt = false;
+        data = await _supabase
+            .from('group_anime_ratings')
+            .select('rating, user_id')
+            .eq('group_id', groupId)
+            .eq('anime_id', animeId);
+      }
       
       if (data.isEmpty) return [];
 
@@ -1986,7 +2115,7 @@ class AnimeRepository {
         return merged;
       }).toList();
 
-      // 5. Ordenar: Yo > Amigos > Otros (y por fecha dentro de cada bloque)
+      // 5. Ordenar: Yo > Amigos > Otros (y por fecha dentro de cada bloque si existe created_at)
       result.sort((a, b) {
         // Prioridad 1: Yo
         if (a['isMe'] == true) return -1;
@@ -1996,10 +2125,15 @@ class AnimeRepository {
         if (a['isFriend'] == true && b['isFriend'] == false) return -1;
         if (a['isFriend'] == false && b['isFriend'] == true) return 1;
         
-        // Por defecto: Fecha descendente
-        final dateA = DateTime.parse(a['updated_at'] as String);
-        final dateB = DateTime.parse(b['updated_at'] as String);
-        return dateB.compareTo(dateA);
+        // Por defecto: Fecha descendente (si existe created_at)
+        if (hasCreatedAt && a['created_at'] != null && b['created_at'] != null) {
+          try {
+            final dateA = DateTime.parse(a['created_at'] as String);
+            final dateB = DateTime.parse(b['created_at'] as String);
+            return dateB.compareTo(dateA);
+          } catch (_) {}
+        }
+        return 0;
       });
 
       return result;
@@ -2017,28 +2151,83 @@ class AnimeRepository {
       final now = DateTime.now().toIso8601String();
 
       // 1. Guardar nota en el grupo (Esto disparará el trigger de sincronización personal)
-      await _supabase.from('group_anime_ratings').upsert({
-        'group_id': groupId,
-        'anime_id': animeId,
-        'user_id': user.id,
-        'rating': rating,
-        'updated_at': now,
-      }, onConflict: 'group_id,anime_id,user_id');
+      try {
+        // Opción A: Intentamos con created_at y onConflict A
+        await _supabase.from('group_anime_ratings').upsert({
+          'group_id': groupId,
+          'anime_id': animeId,
+          'user_id': user.id,
+          'rating': rating,
+          'created_at': now,
+        }, onConflict: 'group_id,anime_id,user_id');
+      } catch (e1) {
+        try {
+          // Opción B: Intentamos con created_at y onConflict B
+          await _supabase.from('group_anime_ratings').upsert({
+            'group_id': groupId,
+            'anime_id': animeId,
+            'user_id': user.id,
+            'rating': rating,
+            'created_at': now,
+          }, onConflict: 'group_id,user_id,anime_id');
+        } catch (e2) {
+          try {
+            // Opción C: Intentamos sin created_at y onConflict A (por si no hay columna de tiempo)
+            await _supabase.from('group_anime_ratings').upsert({
+              'group_id': groupId,
+              'anime_id': animeId,
+              'user_id': user.id,
+              'rating': rating,
+            }, onConflict: 'group_id,anime_id,user_id');
+          } catch (e3) {
+            try {
+              // Opción D: Intentamos sin created_at y onConflict B
+              await _supabase.from('group_anime_ratings').upsert({
+                'group_id': groupId,
+                'anime_id': animeId,
+                'user_id': user.id,
+                'rating': rating,
+              }, onConflict: 'group_id,user_id,anime_id');
+            } catch (e4) {
+              print('Fallo en todas las combinaciones de upsert en group_anime_ratings: $e4');
+              rethrow;
+            }
+          }
+        }
+      }
 
       // 2. Guardar la opinión en las reseñas personales (Sincronización de texto)
-      await _supabase.from('reviews').upsert({
-        'user_id': user.id,
-        'anime_id': animeId,
-        'rating': rating,
-        'opinion': opinion,
-        'created_at': now,
-      }, onConflict: 'user_id,anime_id');
+      try {
+        await _supabase.from('reviews').upsert({
+          'user_id': user.id,
+          'anime_id': animeId,
+          'rating': rating,
+          'opinion': opinion,
+          'created_at': now,
+        }, onConflict: 'anime_id,user_id');
+      } catch (e2) {
+        // Fallback secundario si la restricción de reviews difiere
+        try {
+          await _supabase.from('reviews').upsert({
+            'user_id': user.id,
+            'anime_id': animeId,
+            'rating': rating,
+            'opinion': opinion,
+            'created_at': now,
+          }, onConflict: 'user_id,anime_id');
+        } catch (e2Fallback) {
+          print('Error en upsert reviews: $e2Fallback');
+          rethrow;
+        }
+      }
 
     } catch (e) {
       print('Error en rateGroupAnime con sincronización total: $e');
-      throw Exception('Error al puntuar y sincronizar tu opinión');
+      throw Exception('Error al puntuar: $e');
     }
   }
+
+
 
   Future<List<Map<String, dynamic>>> fetchGroupMembers(String groupId) async {
     try {
