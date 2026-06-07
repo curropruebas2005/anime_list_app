@@ -50,6 +50,9 @@ dev_dependencies:
 flutter_launcher_icons:
   android: true
   ios: true
+  web:
+    generate: true
+    image_path: "logo_final_fixed.png"
   image_path: "logo_final_fixed.png"
   adaptive_icon_background: "#B5E3FF"
   adaptive_icon_foreground: "logo_final_fixed.png"
