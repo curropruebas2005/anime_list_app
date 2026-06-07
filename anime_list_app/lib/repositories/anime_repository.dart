@@ -1751,7 +1751,7 @@ class AnimeRepository {
 
   Future<List<Map<String, dynamic>>> fetchGroupAnimes(String groupId) async {
     try {
-      // Usamos una selección explícita de campos para asegurar que Supabase traiga la URL de la imagen correctamente
+      // 1. Obtener la lista de animes agregados al grupo
       const animeFields = 'mal_id, title, image_url, score, synopsis, status, genres, demographic, release_year, episodes';
       final data = await _supabase
           .from('group_animes')
@@ -1760,66 +1760,102 @@ class AnimeRepository {
       
       final myId = currentUser?.id ?? '';
       
-      // Optimizamos: Traemos mis datos de golpe para cruzarlos y evitar latencia/errores de join
+      // 2. Obtener la lista de todos los miembros de este grupo
+      final membersData = await _supabase
+          .from('group_members')
+          .select('user_id')
+          .eq('group_id', groupId);
+      final memberIds = membersData.map((m) => m['user_id'] as String).toList();
+
+      // 3. Obtener mis datos personales para cruzarlos localmente (estado de visualización de mis animes)
       final myPersonalRaw = await _supabase
           .from('user_anime_list')
           .select('anime_id, status, episodes_watched')
           .eq('user_id', myId);
-      
-      final myReviewsRaw = await _supabase
-          .from('reviews')
-          .select('anime_id, rating, opinion')
-          .eq('user_id', myId);
-
       final personalMap = { for (var e in myPersonalRaw) e['anime_id']: e };
-      final reviewsMap = { for (var r in myReviewsRaw) r['anime_id']: r };
+
+      // 4. Obtener todas las opiniones personales de todos los miembros del grupo para cruzar sus valoraciones personales
+      List<dynamic> allMembersReviewsRaw = [];
+      if (memberIds.isNotEmpty) {
+        allMembersReviewsRaw = await _supabase
+            .from('reviews')
+            .select('anime_id, user_id, rating, opinion')
+            .inFilter('user_id', memberIds);
+      }
+      
+      // Mapear reviews: anime_id -> { user_id: { rating: double, opinion: String } }
+      final Map<int, Map<String, Map<String, dynamic>>> reviewsByAnime = {};
+      for (var r in allMembersReviewsRaw) {
+        final animeId = r['anime_id'] as int;
+        final userId = r['user_id'] as String;
+        final rating = (r['rating'] as num).toDouble();
+        final opinion = r['opinion']?.toString() ?? '';
+        reviewsByAnime.putIfAbsent(animeId, () => {})[userId] = {
+          'rating': rating,
+          'opinion': opinion,
+        };
+      }
+
+      // 5. Obtener todos los votos guardados dentro de este grupo (de cualquier miembro)
+      final groupRatingsRaw = await _supabase
+          .from('group_anime_ratings')
+          .select('anime_id, user_id, rating')
+          .eq('group_id', groupId);
+
+      // Mapear votos del grupo: anime_id -> { user_id: rating }
+      final Map<int, Map<String, double>> groupRatingsByAnime = {};
+      for (var r in groupRatingsRaw) {
+        final animeId = r['anime_id'] as int;
+        final userId = r['user_id'] as String;
+        final rating = (r['rating'] as num).toDouble();
+        groupRatingsByAnime.putIfAbsent(animeId, () => {})[userId] = rating;
+      }
       
       List<Map<String, dynamic>> result = [];
       for (var item in data) {
         final animeMap = item['anime_info'] as Map<String, dynamic>?;
-        if (animeMap == null) continue; // Saltar si por algún motivo no hay datos de anime
+        if (animeMap == null) continue;
 
         final animeId = animeMap['mal_id'];
         
-        // Obtener votos del grupo
-        final ratingsData = await _supabase
-            .from('group_anime_ratings')
-            .select('rating')
-            .eq('group_id', groupId)
-            .eq('anime_id', animeId);
+        final groupRatings = groupRatingsByAnime[animeId] ?? {};
+        final personalReviews = reviewsByAnime[animeId] ?? {};
 
-        // Obtener mi voto en este grupo
-        final myRatingData = await _supabase
-            .from('group_anime_ratings')
-            .select('rating')
-            .eq('group_id', groupId)
-            .eq('anime_id', animeId)
-            .eq('user_id', currentUser?.id ?? '')
-            .maybeSingle();
-
-        final myPersonalEntry = personalMap[animeId];
-        final myPersonalReview = reviewsMap[animeId];
-
-        // Construir la lista de notas para calcular la media del grupo de forma precisa e interactiva
-        final List<double> allRatings = ratingsData.map((r) => (r['rating'] as num).toDouble()).toList();
+        // Combinar valoraciones:
+        // Si el miembro tiene voto en el grupo, usamos ese voto.
+        // Si no, si tiene un voto personal en sus reviews, lo sumamos y además programamos la sincronización en segundo plano.
+        final Map<String, double> finalRatings = {};
         
-        // Si el usuario ya lo tenía puntuado en su lista personal, pero no tiene registro en el grupo
-        if (myRatingData == null && myPersonalReview != null && myId.isNotEmpty) {
-          final personalRating = (myPersonalReview['rating'] as num).toDouble();
-          allRatings.add(personalRating);
-          
-          // Sincronizar automáticamente en segundo plano para persistirlo en la base de datos
-          _syncRatingToGroupInBackground(groupId, animeId, myId, personalRating);
-        }
-            
-        double groupAvg = 0;
-        int totalVotes = 0;
-        if (allRatings.isNotEmpty) {
-          totalVotes = allRatings.length;
-          double sum = 0;
-          for (var r in allRatings) {
-            sum += r;
+        // Cargar primero los del grupo
+        groupRatings.forEach((uid, rating) {
+          finalRatings[uid] = rating;
+        });
+
+        // Luego cruzar con las reviews de todos los miembros del grupo
+        for (var memberId in memberIds) {
+          if (!finalRatings.containsKey(memberId)) {
+            final reviewData = personalReviews[memberId];
+            if (reviewData != null) {
+              final double personalRating = reviewData['rating'];
+              finalRatings[memberId] = personalRating;
+              
+              // Sincronizar automáticamente en segundo plano para guardarlo en group_anime_ratings
+              _syncRatingToGroupInBackground(groupId, animeId, memberId, personalRating);
+            }
           }
+        }
+
+        // Obtener el voto del usuario actual en el grupo o personal
+        final double? myRating = finalRatings[myId];
+        final myPersonalEntry = personalMap[animeId];
+        final myPersonalReview = personalReviews[myId];
+
+        // Calcular la media combinada de todos los miembros
+        double groupAvg = 0;
+        int totalVotes = finalRatings.length;
+        if (totalVotes > 0) {
+          double sum = 0;
+          finalRatings.forEach((_, val) => sum += val);
           groupAvg = sum / totalVotes;
         }
 
@@ -1827,9 +1863,7 @@ class AnimeRepository {
           'anime': Anime.fromMap(animeMap),
           'avg_rating': groupAvg,
           'total_votes': totalVotes,
-          'my_rating': myRatingData != null 
-              ? (myRatingData['rating'] as num).toDouble() 
-              : (myPersonalReview != null ? (myPersonalReview['rating'] as num).toDouble() : null),
+          'my_rating': myRating,
           'my_status': myPersonalEntry != null ? myPersonalEntry['status'] : 'No en mi lista',
           'my_episodes': myPersonalEntry != null ? (myPersonalEntry['episodes_watched'] as num).toInt() : 0,
           'my_opinion': myPersonalReview != null ? (myPersonalReview['opinion'] ?? '') : '',

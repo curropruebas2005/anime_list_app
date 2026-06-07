@@ -30,6 +30,12 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
   final _animeRepo = AnimeRepository();
   bool _isLoading = true;
   List<Map<String, dynamic>> _groupAnimes = [];
+  
+  final TextEditingController _groupSearchController = TextEditingController();
+  String _groupSearchQuery = '';
+  String _groupSelectedGenre = 'Todos';
+  String _groupSelectedStatus = 'Todos';
+  String _groupSortOption = 'Mejor valorados';
   List<Map<String, dynamic>> _members = [];
   int _memberCount = 0;
   String? _stableAvatarUrl;
@@ -280,6 +286,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
     _animeRepo.profileUpdateNotifier.removeListener(_loadDataShort);
     _tabController.dispose();
     _chatController.dispose();
+    _groupSearchController.dispose();
     _chatScrollController.dispose();
     if (_chatChannel != null) {
       _supabase.removeChannel(_chatChannel!);
@@ -730,6 +737,258 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
     );
   }
 
+  List<Map<String, dynamic>> get _filteredGroupAnimes {
+    List<Map<String, dynamic>> list = List.from(_groupAnimes);
+
+    if (_groupSearchQuery.isNotEmpty) {
+      final query = _groupSearchQuery.toLowerCase();
+      list = list.where((item) {
+        final anime = item['anime'] as Anime;
+        final title = anime.title.toLowerCase();
+        final romaji = anime.titleRomaji?.toLowerCase() ?? '';
+        return title.contains(query) || romaji.contains(query);
+      }).toList();
+    }
+
+    if (_groupSelectedGenre != 'Todos') {
+      list = list.where((item) {
+        final anime = item['anime'] as Anime;
+        return anime.genres.contains(_groupSelectedGenre);
+      }).toList();
+    }
+
+    if (_groupSelectedStatus != 'Todos') {
+      list = list.where((item) {
+        final anime = item['anime'] as Anime;
+        final statusStr = anime.status.toLowerCase();
+        if (_groupSelectedStatus == 'En emisión') {
+          return statusStr.contains('emisión') || statusStr.contains('airing') || statusStr.contains('publishing');
+        } else if (_groupSelectedStatus == 'Finalizado') {
+          return statusStr.contains('finalizado') || statusStr.contains('finished') || statusStr.contains('completed');
+        }
+        return true;
+      }).toList();
+    }
+
+    list.sort((a, b) {
+      final animeA = a['anime'] as Anime;
+      final animeB = b['anime'] as Anime;
+      
+      switch (_groupSortOption) {
+        case 'Mejor valorados':
+          final double ratingA = (a['avg_rating'] as num?)?.toDouble() ?? 0.0;
+          final double ratingB = (b['avg_rating'] as num?)?.toDouble() ?? 0.0;
+          return ratingB.compareTo(ratingA);
+        case 'Más votados':
+          final int votesA = (a['total_votes'] as num?)?.toInt() ?? 0;
+          final int votesB = (b['total_votes'] as num?)?.toInt() ?? 0;
+          return votesB.compareTo(votesA);
+        case 'Alfabético A-Z':
+          return animeA.title.toLowerCase().compareTo(animeB.title.toLowerCase());
+        case 'Año (Nuevo-Viejo)':
+          return animeB.year.compareTo(animeA.year);
+        case 'Año (Viejo-Nuevo)':
+          return animeA.year.compareTo(animeB.year);
+        default:
+          return 0;
+      }
+    });
+
+    return list;
+  }
+
+  void _showGroupFiltersModal() {
+    final listGenres = [
+      'Todos', 'Acción', 'Aventura', 'Comedia', 'Drama', 'Fantasía',
+      'Ciencia Ficción', 'Romance', 'Suspenso', 'Terror', 'Deportes', 'Harén'
+    ];
+    final listStatuses = ['Todos', 'En emisión', 'Finalizado'];
+    final listOrders = ['Mejor valorados', 'Más votados', 'Alfabético A-Z', 'Año (Nuevo-Viejo)', 'Año (Viejo-Nuevo)'];
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (sheetCtx, setModalState) {
+            return Container(
+              padding: EdgeInsets.fromLTRB(24, 24, 24, MediaQuery.of(context).padding.bottom + 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        'Filtros del Grupo',
+                        style: TextStyle(
+                          fontFamily: 'Plus Jakarta Sans',
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
+                      ),
+                      const Spacer(),
+                      TextButton.icon(
+                        onPressed: () {
+                          setModalState(() {
+                            setState(() {
+                              _groupSelectedGenre = 'Todos';
+                              _groupSelectedStatus = 'Todos';
+                              _groupSortOption = 'Mejor valorados';
+                            });
+                          });
+                        },
+                        icon: const Icon(Icons.refresh_rounded, size: 18, color: Colors.redAccent),
+                        label: const Text('Restablecer', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildGroupFilterChipsSection(
+                            title: 'Géneros',
+                            options: listGenres,
+                            selectedOption: _groupSelectedGenre,
+                            onSelect: (val) => setModalState(() => setState(() => _groupSelectedGenre = val)),
+                          ),
+                          const SizedBox(height: 16),
+                          _buildGroupFilterChipsSection(
+                            title: 'Estado de emisión',
+                            options: listStatuses,
+                            selectedOption: _groupSelectedStatus,
+                            onSelect: (val) => setModalState(() => setState(() => _groupSelectedStatus = val)),
+                          ),
+                          const SizedBox(height: 16),
+                          _buildGroupFilterChipsSection(
+                            title: 'Ordenar por',
+                            options: listOrders,
+                            selectedOption: _groupSortOption,
+                            onSelect: (val) => setModalState(() => setState(() => _groupSortOption = val)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF00C4FF),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      ),
+                      onPressed: () {
+                        Navigator.pop(context);
+                      },
+                      child: const Text('Aplicar Filtros', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildGroupFilterChipsSection({
+    required String title,
+    required List<String> options,
+    required String selectedOption,
+    required Function(String) onSelect,
+  }) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 12),
+          child: Text(
+            title.toUpperCase(),
+            style: TextStyle(
+              fontWeight: FontWeight.w900,
+              fontSize: 11,
+              letterSpacing: 1.2,
+              color: theme.colorScheme.onSurface.withOpacity(0.5),
+            ),
+          ),
+        ),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: options.map((option) {
+            final isSelected = selectedOption == option;
+            return GestureDetector(
+              onTap: () => onSelect(option),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeInOut,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  color: isSelected 
+                      ? AppTheme.primary.withOpacity(0.2)
+                      : (isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05)),
+                  border: Border.all(
+                    color: isSelected ? AppTheme.primary : Colors.transparent,
+                    width: 1.5,
+                  ),
+                ),
+                child: Text(
+                  option,
+                  style: TextStyle(
+                    color: isSelected ? AppTheme.primary : theme.colorScheme.onSurface.withOpacity(0.7),
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActiveFilterChip({required String label, required VoidCallback onDeleted, required ThemeData theme}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppTheme.primary.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.primary.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 11, color: AppTheme.primary, fontWeight: FontWeight.bold)),
+          const SizedBox(width: 4),
+          GestureDetector(
+            onTap: onDeleted,
+            child: const Icon(Icons.close, size: 14, color: AppTheme.primary),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildAnimesTab() {
     if (_groupAnimes.isEmpty) {
       return _buildEmptyState(Icons.movie_filter_outlined, "No hay animes en este grupo.\n¡Añade la primera serie!");
@@ -738,164 +997,260 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
     final theme = Theme.of(context);
     final onSurface = theme.colorScheme.onSurface;
     final onSurfaceVariant = theme.colorScheme.onSurfaceVariant;
+    final filteredList = _filteredGroupAnimes;
 
-    return ListView.builder(
+    return ListView(
       padding: const EdgeInsets.only(bottom: 140, left: 16, right: 16, top: 16),
-      itemCount: _groupAnimes.length,
-      itemBuilder: (context, index) {
-        final item = _groupAnimes[index];
-        final anime = item['anime'] as Anime;
-        final double avgRating = (item['avg_rating'] as num?)?.toDouble() ?? 0.0;
-        final int totalVotes = (item['total_votes'] as num?)?.toInt() ?? 0;
-        final double? myRating = (item['my_rating'] as num?)?.toDouble();
-        final String myStatus = item['my_status']?.toString() ?? 'No en mi lista';
-        final String myOpinion = item['my_opinion']?.toString() ?? '';
-        final int myEpisodes = (item['my_episodes'] as num?)?.toInt() ?? 0;
-        final int totalEpisodes = anime.episodes;
-
-        return GestureDetector(
-          onLongPress: () => AnimePreviewDialog.show(context, anime),
-          child: Container(
-            margin: const EdgeInsets.only(bottom: 16),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surface,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: theme.colorScheme.outlineVariant.withOpacity(0.1)),
-            ),
-            child: Row(
-              children: [
-                GestureDetector(
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => AnimeDetailScreen(anime: anime)),
-                  ).then((_) => _loadData(showLoader: false)),
-                  onLongPress: () => AnimePreviewDialog.show(context, anime),
-                  child: WebSafeImage(url: wrapImageProxy(anime.imageUrl), width: 70, height: 100, borderRadius: BorderRadius.circular(12)),
+      children: [
+        // Buscador y Botón de Filtros
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _groupSearchController,
+                style: TextStyle(color: onSurface),
+                decoration: InputDecoration(
+                  prefixIcon: Icon(Icons.search, color: onSurface.withOpacity(0.5)),
+                  hintText: 'Buscar anime en el grupo...',
+                  hintStyle: TextStyle(color: onSurface.withOpacity(0.5)),
+                  filled: true,
+                  fillColor: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: theme.colorScheme.outlineVariant.withOpacity(0.1))),
+                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: theme.colorScheme.outlineVariant.withOpacity(0.1))),
+                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF00C4FF))),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: GestureDetector(
-                              onTap: () => Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (_) => AnimeDetailScreen(anime: anime)),
-                              ).then((_) => _loadData(showLoader: false)),
-                              onLongPress: () => AnimePreviewDialog.show(context, anime),
-                              child: Text(
-                                anime.title, 
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold, 
-                                  fontSize: 16, 
-                                  color: onSurface
-                                )
-                              ),
-                            ),
-                          ),
-                          if (_isAdmin) IconButton(
-                            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-                            onPressed: () => _confirmDeleteAnime(anime),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                          children: [
-                            const Icon(Icons.star, color: Colors.amber, size: 16),
-                            const SizedBox(width: 4),
-                            Text(
-                              avgRating == 0 ? "Sin notas" : avgRating.toStringAsFixed(1),
-                              style: TextStyle(color: onSurface, fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(width: 8),
-                            Text("($totalVotes votos)", style: TextStyle(color: onSurfaceVariant, fontSize: 12)),
-                            if (_isMember) ...[
-                              const Spacer(),
-                              if (totalVotes > 0) TextButton(
-                                onPressed: () => _showGroupRatingsModal(anime.malId, anime.title),
-                                style: TextButton.styleFrom(
-                                  padding: EdgeInsets.zero,
-                                  minimumSize: Size.zero,
-                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                ),
-                                child: const Text("Ver valoraciones", style: TextStyle(color: AppTheme.primary, fontSize: 10, fontWeight: FontWeight.bold)),
-                              ),
-                            ],
-                          ],
-                      ),
-                      if (_isMember) ...[
-                        if (myOpinion.isNotEmpty) ...[
-                          const SizedBox(height: 6),
-                          Text(
-                            "\"$myOpinion\"",
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(color: onSurfaceVariant, fontSize: 10, fontStyle: FontStyle.italic),
-                          ),
-                        ] else ...[
-                          const SizedBox(height: 6),
-                          Text(
-                            "\"Sin comentarios\"",
-                            style: TextStyle(color: onSurfaceVariant.withOpacity(0.5), fontSize: 10, fontStyle: FontStyle.italic),
-                          ),
-                        ],
-                        const SizedBox(height: 10),
-                        // SECTOR DE EPISODIOS Y ESTADO
-                        Row(
-                          children: [
-                            // Contador de Episodios
-                            _buildEpisodeCounter(anime, myEpisodes, totalEpisodes),
-                            const SizedBox(width: 8),
-                            // Selector de Estado
-                            Expanded(child: _buildStatusSelector(anime, myStatus)),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        // BOTÓN DE PUNTUAR (Alineado a la derecha)
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: GestureDetector(
-                            onTap: () => _showRatingPicker(anime.malId, myRating ?? 0.0, initialOpinion: myOpinion),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: myRating != null ? AppTheme.primary.withOpacity(0.1) : theme.colorScheme.onSurface.withOpacity(0.05),
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(color: myRating != null ? AppTheme.primary : Colors.transparent),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.star, size: 12, color: myRating != null ? AppTheme.primary : onSurfaceVariant),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    myRating != null ? myRating.toStringAsFixed(1) : "Puntuar",
-                                    style: TextStyle(
-                                      color: myRating != null ? AppTheme.primary : onSurfaceVariant,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
+                onChanged: (val) {
+                  setState(() {
+                    _groupSearchQuery = val;
+                  });
+                },
+              ),
+            ),
+            const SizedBox(width: 12),
+            // Botón de Filtros
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: _showGroupFiltersModal,
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: theme.colorScheme.outlineVariant.withOpacity(0.1)),
                   ),
+                  child: Icon(Icons.tune_rounded, color: onSurface),
+                ),
+              ),
+            ),
+          ],
+        ),
+        
+        // Indicador de filtros activos
+        if (_groupSelectedGenre != 'Todos' || _groupSelectedStatus != 'Todos' || _groupSortOption != 'Mejor valorados') ...[
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (_groupSelectedGenre != 'Todos')
+                _buildActiveFilterChip(
+                  label: 'Género: $_groupSelectedGenre',
+                  onDeleted: () => setState(() => _groupSelectedGenre = 'Todos'),
+                  theme: theme,
+                ),
+              if (_groupSelectedStatus != 'Todos')
+                _buildActiveFilterChip(
+                  label: 'Estado: $_groupSelectedStatus',
+                  onDeleted: () => setState(() => _groupSelectedStatus = 'Todos'),
+                  theme: theme,
+                ),
+              if (_groupSortOption != 'Mejor valorados')
+                _buildActiveFilterChip(
+                  label: 'Orden: $_groupSortOption',
+                  onDeleted: () => setState(() => _groupSortOption = 'Mejor valorados'),
+                  theme: theme,
+                ),
+            ],
+          ),
+        ],
+
+        const SizedBox(height: 20),
+
+        if (filteredList.isEmpty)
+          Center(
+            child: Column(
+              children: [
+                const SizedBox(height: 60),
+                Icon(Icons.search_off_rounded, size: 64, color: onSurfaceVariant.withOpacity(0.3)),
+                const SizedBox(height: 16),
+                Text(
+                  'No se encontraron resultados para tu búsqueda en el grupo',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: onSurfaceVariant.withOpacity(0.5)),
                 ),
               ],
             ),
+          )
+        else
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            padding: EdgeInsets.zero,
+            itemCount: filteredList.length,
+            itemBuilder: (context, index) {
+              final item = filteredList[index];
+              final anime = item['anime'] as Anime;
+              final double avgRating = (item['avg_rating'] as num?)?.toDouble() ?? 0.0;
+              final int totalVotes = (item['total_votes'] as num?)?.toInt() ?? 0;
+              final double? myRating = (item['my_rating'] as num?)?.toDouble();
+              final String myStatus = item['my_status']?.toString() ?? 'No en mi lista';
+              final String myOpinion = item['my_opinion']?.toString() ?? '';
+              final int myEpisodes = (item['my_episodes'] as num?)?.toInt() ?? 0;
+              final int totalEpisodes = anime.episodes;
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: theme.colorScheme.outlineVariant.withOpacity(0.1)),
+                ),
+                child: Row(
+                  children: [
+                    GestureDetector(
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => AnimeDetailScreen(anime: anime)),
+                      ).then((_) => _loadData(showLoader: false)),
+                      child: WebSafeImage(url: wrapImageProxy(anime.imageUrl), width: 70, height: 100, borderRadius: BorderRadius.circular(12)),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: GestureDetector(
+                                  onTap: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(builder: (_) => AnimeDetailScreen(anime: anime)),
+                                  ).then((_) => _loadData(showLoader: false)),
+                                  child: Text(
+                                    anime.title, 
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold, 
+                                      fontSize: 16, 
+                                      color: onSurface
+                                    )
+                                  ),
+                                ),
+                              ),
+                              if (_isAdmin) IconButton(
+                                icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                                onPressed: () => _confirmDeleteAnime(anime),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                              children: [
+                                const Icon(Icons.star, color: Colors.amber, size: 16),
+                                const SizedBox(width: 4),
+                                Text(
+                                  avgRating == 0 ? "Sin notas" : avgRating.toStringAsFixed(1),
+                                  style: TextStyle(color: onSurface, fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(width: 8),
+                                Text("($totalVotes votos)", style: TextStyle(color: onSurfaceVariant, fontSize: 12)),
+                                if (_isMember) ...[
+                                  const Spacer(),
+                                  if (totalVotes > 0) TextButton(
+                                    onPressed: () => _showGroupRatingsModal(anime.malId, anime.title),
+                                    style: TextButton.styleFrom(
+                                      padding: EdgeInsets.zero,
+                                      minimumSize: Size.zero,
+                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                    child: const Text("Ver valoraciones", style: TextStyle(color: AppTheme.primary, fontSize: 10, fontWeight: FontWeight.bold)),
+                                  ),
+                                ],
+                              ],
+                          ),
+                          if (_isMember) ...[
+                            if (myOpinion.isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                "\"$myOpinion\"",
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(color: onSurfaceVariant, fontSize: 10, fontStyle: FontStyle.italic),
+                              ),
+                            ] else ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                "\"Sin comentarios\"",
+                                style: TextStyle(color: onSurfaceVariant.withOpacity(0.5), fontSize: 10, fontStyle: FontStyle.italic),
+                              ),
+                            ],
+                            const SizedBox(height: 10),
+                            // SECTOR DE EPISODIOS Y ESTADO
+                            Row(
+                              children: [
+                                // Contador de Episodios
+                                _buildEpisodeCounter(anime, myEpisodes, totalEpisodes),
+                                const SizedBox(width: 8),
+                                // Selector de Estado
+                                Expanded(child: _buildStatusSelector(anime, myStatus)),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            // BOTÓN DE PUNTUAR (Alineado a la derecha)
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: GestureDetector(
+                                onTap: () => _showRatingPicker(anime.malId, myRating ?? 0.0, initialOpinion: myOpinion),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: myRating != null ? AppTheme.primary.withOpacity(0.1) : theme.colorScheme.onSurface.withOpacity(0.05),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(color: myRating != null ? AppTheme.primary : Colors.transparent),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.star, size: 12, color: myRating != null ? AppTheme.primary : onSurfaceVariant),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        myRating != null ? myRating.toStringAsFixed(1) : "Puntuar",
+                                        style: TextStyle(
+                                          color: myRating != null ? AppTheme.primary : onSurfaceVariant,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
-        );
-      },
+      ],
     );
   }
 
