@@ -10,6 +10,7 @@ import '../repositories/anime_repository.dart';
 import '../models/anime.dart';
 import 'anime_detail_screen.dart';
 import '../widgets/web_safe_image.dart';
+import '../widgets/anime_preview_dialog.dart';
 
 class MyListScreen extends StatefulWidget {
   final ScrollController? scrollController;
@@ -328,6 +329,7 @@ class _MyListScreenState extends State<MyListScreen> {
                         );
                         _loadList(); // Refrescar al volver
                       },
+                      onLongPress: () => AnimePreviewDialog.show(context, anime),
                       child: _buildListItem(
                         anime: anime,
                         status: item['status'],

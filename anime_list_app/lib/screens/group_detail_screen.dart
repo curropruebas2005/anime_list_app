@@ -11,6 +11,7 @@ import '../utils/image_utils.dart';
 import 'profile_screen.dart';
 import 'user_profile_screen.dart';
 import 'anime_detail_screen.dart';
+import '../widgets/anime_preview_dialog.dart';
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -752,141 +753,146 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
         final int myEpisodes = (item['my_episodes'] as num?)?.toInt() ?? 0;
         final int totalEpisodes = anime.episodes;
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 16),
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: theme.colorScheme.outlineVariant.withOpacity(0.1)),
-          ),
-          child: Row(
-            children: [
-              GestureDetector(
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => AnimeDetailScreen(anime: anime)),
-                ).then((_) => _loadData(showLoader: false)),
-                child: WebSafeImage(url: wrapImageProxy(anime.imageUrl), width: 70, height: 100, borderRadius: BorderRadius.circular(12)),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(builder: (_) => AnimeDetailScreen(anime: anime)),
-                            ).then((_) => _loadData(showLoader: false)),
-                            child: Text(
-                              anime.title, 
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold, 
-                                fontSize: 16, 
-                                color: onSurface
-                              )
-                            ),
-                          ),
-                        ),
-                        if (_isAdmin) IconButton(
-                          icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-                          onPressed: () => _confirmDeleteAnime(anime),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                        children: [
-                          const Icon(Icons.star, color: Colors.amber, size: 16),
-                          const SizedBox(width: 4),
-                          Text(
-                            avgRating == 0 ? "Sin notas" : avgRating.toStringAsFixed(1),
-                            style: TextStyle(color: onSurface, fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(width: 8),
-                          Text("($totalVotes votos)", style: TextStyle(color: onSurfaceVariant, fontSize: 12)),
-                          if (_isMember) ...[
-                            const Spacer(),
-                            if (totalVotes > 0) TextButton(
-                              onPressed: () => _showGroupRatingsModal(anime.malId, anime.title),
-                              style: TextButton.styleFrom(
-                                padding: EdgeInsets.zero,
-                                minimumSize: Size.zero,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                              child: const Text("Ver valoraciones", style: TextStyle(color: AppTheme.primary, fontSize: 10, fontWeight: FontWeight.bold)),
-                            ),
-                          ],
-                        ],
-                    ),
-                    if (_isMember) ...[
-                      if (myOpinion.isNotEmpty) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          "\"$myOpinion\"",
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: onSurfaceVariant, fontSize: 10, fontStyle: FontStyle.italic),
-                        ),
-                      ] else ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          "\"Sin comentarios\"",
-                          style: TextStyle(color: onSurfaceVariant.withOpacity(0.5), fontSize: 10, fontStyle: FontStyle.italic),
-                        ),
-                      ],
-                      const SizedBox(height: 10),
-                      // SECTOR DE EPISODIOS Y ESTADO
-                      Row(
-                        children: [
-                          // Contador de Episodios
-                          _buildEpisodeCounter(anime, myEpisodes, totalEpisodes),
-                          const SizedBox(width: 8),
-                          // Selector de Estado
-                          Expanded(child: _buildStatusSelector(anime, myStatus)),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      // BOTÓN DE PUNTUAR (Alineado a la derecha)
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: GestureDetector(
-                          onTap: () => _showRatingPicker(anime.malId, myRating ?? 0.0, initialOpinion: myOpinion),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: myRating != null ? AppTheme.primary.withOpacity(0.1) : theme.colorScheme.onSurface.withOpacity(0.05),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: myRating != null ? AppTheme.primary : Colors.transparent),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.star, size: 12, color: myRating != null ? AppTheme.primary : onSurfaceVariant),
-                                const SizedBox(width: 4),
-                                Text(
-                                  myRating != null ? myRating.toStringAsFixed(1) : "Puntuar",
-                                  style: TextStyle(
-                                    color: myRating != null ? AppTheme.primary : onSurfaceVariant,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
+        return GestureDetector(
+          onLongPress: () => AnimePreviewDialog.show(context, anime),
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: theme.colorScheme.outlineVariant.withOpacity(0.1)),
+            ),
+            child: Row(
+              children: [
+                GestureDetector(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => AnimeDetailScreen(anime: anime)),
+                  ).then((_) => _loadData(showLoader: false)),
+                  onLongPress: () => AnimePreviewDialog.show(context, anime),
+                  child: WebSafeImage(url: wrapImageProxy(anime.imageUrl), width: 70, height: 100, borderRadius: BorderRadius.circular(12)),
                 ),
-              ),
-            ],
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => AnimeDetailScreen(anime: anime)),
+                              ).then((_) => _loadData(showLoader: false)),
+                              onLongPress: () => AnimePreviewDialog.show(context, anime),
+                              child: Text(
+                                anime.title, 
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold, 
+                                  fontSize: 16, 
+                                  color: onSurface
+                                )
+                              ),
+                            ),
+                          ),
+                          if (_isAdmin) IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                            onPressed: () => _confirmDeleteAnime(anime),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                          children: [
+                            const Icon(Icons.star, color: Colors.amber, size: 16),
+                            const SizedBox(width: 4),
+                            Text(
+                              avgRating == 0 ? "Sin notas" : avgRating.toStringAsFixed(1),
+                              style: TextStyle(color: onSurface, fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(width: 8),
+                            Text("($totalVotes votos)", style: TextStyle(color: onSurfaceVariant, fontSize: 12)),
+                            if (_isMember) ...[
+                              const Spacer(),
+                              if (totalVotes > 0) TextButton(
+                                onPressed: () => _showGroupRatingsModal(anime.malId, anime.title),
+                                style: TextButton.styleFrom(
+                                  padding: EdgeInsets.zero,
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                child: const Text("Ver valoraciones", style: TextStyle(color: AppTheme.primary, fontSize: 10, fontWeight: FontWeight.bold)),
+                              ),
+                            ],
+                          ],
+                      ),
+                      if (_isMember) ...[
+                        if (myOpinion.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            "\"$myOpinion\"",
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(color: onSurfaceVariant, fontSize: 10, fontStyle: FontStyle.italic),
+                          ),
+                        ] else ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            "\"Sin comentarios\"",
+                            style: TextStyle(color: onSurfaceVariant.withOpacity(0.5), fontSize: 10, fontStyle: FontStyle.italic),
+                          ),
+                        ],
+                        const SizedBox(height: 10),
+                        // SECTOR DE EPISODIOS Y ESTADO
+                        Row(
+                          children: [
+                            // Contador de Episodios
+                            _buildEpisodeCounter(anime, myEpisodes, totalEpisodes),
+                            const SizedBox(width: 8),
+                            // Selector de Estado
+                            Expanded(child: _buildStatusSelector(anime, myStatus)),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        // BOTÓN DE PUNTUAR (Alineado a la derecha)
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: GestureDetector(
+                            onTap: () => _showRatingPicker(anime.malId, myRating ?? 0.0, initialOpinion: myOpinion),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: myRating != null ? AppTheme.primary.withOpacity(0.1) : theme.colorScheme.onSurface.withOpacity(0.05),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(color: myRating != null ? AppTheme.primary : Colors.transparent),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.star, size: 12, color: myRating != null ? AppTheme.primary : onSurfaceVariant),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    myRating != null ? myRating.toStringAsFixed(1) : "Puntuar",
+                                    style: TextStyle(
+                                      color: myRating != null ? AppTheme.primary : onSurfaceVariant,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },

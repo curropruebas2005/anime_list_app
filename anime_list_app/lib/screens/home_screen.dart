@@ -10,6 +10,7 @@ import 'profile_screen.dart';
 import '../utils/image_utils.dart';
 import '../widgets/global_app_bar.dart';
 import '../widgets/web_safe_image.dart';
+import '../widgets/anime_preview_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   final ScrollController? scrollController;
@@ -747,6 +748,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return GestureDetector(
       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AnimeDetailScreen(anime: anime))),
+      onLongPress: () => AnimePreviewDialog.show(context, anime),
       child: Container(
         height: 160,
         decoration: BoxDecoration(
