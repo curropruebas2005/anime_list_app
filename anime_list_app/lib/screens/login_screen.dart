@@ -47,6 +47,7 @@ class _LoginScreenState extends State<LoginScreen> {
       const webClientId = '497297504460-692oqncgrg2b23maao6fa48iomknkuon.apps.googleusercontent.com';
       
       final GoogleSignIn googleSignIn = GoogleSignIn(
+        clientId: webClientId,
         serverClientId: webClientId,
         // Eliminamos scopes manuales por ahora para usar los por defecto (email, profile)
       );
